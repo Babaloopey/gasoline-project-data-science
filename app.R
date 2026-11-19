@@ -30,7 +30,16 @@ ui <- fluidPage(
                  plotOutput("plot_diesel"),
                  br(),
                  h4("Datentabelle Diesel (Monatlich)"),
-                 tableOutput("table_diesel"))
+                 tableOutput("table_diesel")),
+
+        tabPanel("Heizöl",
+                 br(),
+                 plotOutput("plot_heizoel"),
+                 br(),
+                 h4("Datentabelle Heizöl (Monatlich)"),
+                 p("Schweiz: LIK-Durchschnittspreis, Bezugsmenge 3'001 - 6'000 l (CHF/100 l -> CHF/l). ",
+                   "EU: Weekly Oil Bulletin, Heating gas oil (EUR/1000 l -> EUR/l)."),
+                 tableOutput("table_heizoel"))
       )
     )
   )
@@ -56,8 +65,11 @@ server <- function(input, output, session) {
         )
       ) %>%
       filter(!is.na(Date)) %>%
-      select(Date, Benzin95 = 2, Diesel = 3) %>%
-      mutate(across(c(Benzin95, Diesel), as.numeric))
+      select(Date, Benzin95 = 2, Diesel = 3, Heizoel_100l = 4) %>%
+      mutate(across(c(Benzin95, Diesel, Heizoel_100l), as.numeric),
+             # Heizöl im LIK in CHF pro 100 l -> Umrechnung auf 1 l
+             Heizoel = Heizoel_100l / 100) %>%
+      select(Date, Benzin95, Diesel, Heizoel)
     
     return(df)
   })
@@ -84,21 +96,26 @@ server <- function(input, output, session) {
       # Tausendertrennzeichen (') entfernen und in numerisch umwandeln
       mutate(
         Benzin_raw = as.numeric(str_replace_all(as.character(.[[2]]), "'", "")),
-        Diesel_raw = as.numeric(str_replace_all(as.character(.[[3]]), "'", ""))
+        Diesel_raw = as.numeric(str_replace_all(as.character(.[[3]]), "'", "")),
+        Heizoel_raw = as.numeric(str_replace_all(as.character(.[[4]]), "'", ""))
       ) %>%
       group_by(Month) %>%
       summarise(
         Benzin95_1000l = mean(Benzin_raw, na.rm = TRUE),
         Diesel_1000l = mean(Diesel_raw, na.rm = TRUE),
+        Heizoel_1000l = mean(Heizoel_raw, na.rm = TRUE),
         .groups = "drop"
       ) %>%
       mutate(
         # Umrechnung von 1000l auf 1l
         Benzin95 = Benzin95_1000l / 1000,
         Diesel = Diesel_1000l / 1000,
+        Heizoel = Heizoel_1000l / 1000,
         Date = Month
       ) %>%
-      select(Date, Benzin95, Diesel)
+      # Monate ohne Werte (NaN aus mean) als NA behandeln
+      mutate(across(c(Benzin95, Diesel, Heizoel), ~ ifelse(is.nan(.x), NA, .x))) %>%
+      select(Date, Benzin95, Diesel, Heizoel)
     
     return(df)
   })
@@ -123,6 +140,17 @@ server <- function(input, output, session) {
       filter(Date >= as.Date(input$date_range[1]) & Date <= as.Date(input$date_range[2]))
   })
   
+  # Zusammenführen für Heizöl
+  merged_heizoel <- reactive({
+    req(data_bfs(), data_eu())
+    ch <- data_bfs() %>% select(Date, Schweiz = Heizoel)
+    eu <- data_eu() %>% select(Date, EU = Heizoel)
+
+    inner_join(ch, eu, by = "Date") %>%
+      filter(!is.na(Schweiz) | !is.na(EU)) %>%
+      filter(Date >= as.Date(input$date_range[1]) & Date <= as.Date(input$date_range[2]))
+  })
+
   # Plot Benzin 95
   output$plot_benzin <- renderPlot({
     df <- merged_benzin()
@@ -151,6 +179,20 @@ server <- function(input, output, session) {
       theme_minimal(base_size = 14)
   })
   
+  # Plot Heizöl
+  output$plot_heizoel <- renderPlot({
+    df <- merged_heizoel()
+    req(nrow(df) > 0)
+
+    df_long <- df %>% pivot_longer(cols = c(Schweiz, EU), names_to = "Region", values_to = "Preis")
+
+    ggplot(df_long, aes(x = Date, y = Preis, color = Region)) +
+      geom_line(linewidth = 1, na.rm = TRUE) +
+      labs(title = "Monatlicher Preisvergleich: Heizöl (Schweiz vs. EU)",
+           y = "Preis pro Liter (CHF / EUR)", x = "Zeitraum") +
+      theme_minimal(base_size = 14)
+  })
+
   # Tabellen mit formatiertem Monat (YYYY-MM)
   output$table_benzin <- renderTable({
     merged_benzin() %>% 
@@ -159,8 +201,14 @@ server <- function(input, output, session) {
   }, digits = 4)
   
   output$table_diesel <- renderTable({
-    merged_diesel() %>% 
-      mutate(Date = format(Date, "%Y-%m")) %>% 
+    merged_diesel() %>%
+      mutate(Date = format(Date, "%Y-%m")) %>%
+      arrange(desc(Date))
+  }, digits = 4)
+
+  output$table_heizoel <- renderTable({
+    merged_heizoel() %>%
+      mutate(Date = format(Date, "%Y-%m")) %>%
       arrange(desc(Date))
   }, digits = 4)
 }
