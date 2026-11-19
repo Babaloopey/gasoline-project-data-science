@@ -74,7 +74,18 @@ ui <- fluidPage(
                  plotOutput("plot_heizoel_diff"),
                  br(),
                  h4("Datentabelle Heizöl mit Wechselkurs (Monatlich)"),
-                 tableOutput("table_heizoel_chf"))
+                 tableOutput("table_heizoel_chf")),
+
+        tabPanel("Heizgradtage",
+                 br(),
+                 plotOutput("plot_hgt"),
+                 br(),
+                 plotOutput("plot_hgt_saison"),
+                 br(),
+                 h4("Datentabelle Heizgradtage (Monatlich)"),
+                 p("Heizgradtage (HGT) Schweiz, gewichtet (BFE). Je kälter der Monat, desto höher der Wert. ",
+                   "Gestrichelte Linie = 24.02.2022 (Beginn Ukraine-Krieg)."),
+                 tableOutput("table_hgt"))
       )
     )
   )
@@ -170,6 +181,24 @@ server <- function(input, output, session) {
       select(Date, EUR_CHF)
   })
 
+  # 4. Heizgradtage einlesen (Jahr, Monat, HGT, CDD) - Kühlgradtage (CDD) werden nicht verwendet
+  data_hgt <- reactive({
+    file_path <- "Heizgradtage und Kühlgradtage.csv"
+    validate(need(file.exists(file_path), paste("Datei nicht gefunden:", file_path)))
+
+    read_csv(file_path, show_col_types = FALSE) %>%
+      mutate(Date = make_date(Jahr, Monat, 1),
+             HGT = as.numeric(HGT)) %>%
+      filter(!is.na(Date), !is.na(HGT)) %>%
+      select(Date, Jahr, Monat, HGT)
+  })
+
+  filtered_hgt <- reactive({
+    req(data_hgt())
+    data_hgt() %>%
+      filter(Date >= as.Date(input$date_range[1]) & Date <= as.Date(input$date_range[2]))
+  })
+
   filtered_fx <- reactive({
     req(data_fx())
     data_fx() %>%
@@ -261,6 +290,41 @@ server <- function(input, output, session) {
            y = "CHF pro 1 EUR", x = "Zeitraum") +
       theme_minimal(base_size = 14)
   })
+
+  # Plot Heizgradtage: Zeitreihe
+  output$plot_hgt <- renderPlot({
+    df <- filtered_hgt()
+    req(nrow(df) > 0)
+
+    ggplot(df, aes(x = Date, y = HGT)) +
+      geom_col(fill = "#1f77b4", width = 25) +
+      geom_vline(xintercept = as.Date("2022-02-24"), linetype = "dashed", color = "grey40") +
+      labs(title = "Monatliche Heizgradtage Schweiz",
+           y = "Heizgradtage (HGT)", x = "Zeitraum") +
+      theme_minimal(base_size = 14)
+  })
+
+  # Plot Heizgradtage: Saisonverlauf, eine Linie pro Jahr
+  output$plot_hgt_saison <- renderPlot({
+    df <- filtered_hgt()
+    req(nrow(df) > 0)
+
+    ggplot(df, aes(x = Monat, y = HGT, group = Jahr, color = factor(Jahr))) +
+      geom_line(linewidth = 1) +
+      geom_point(size = 1.5) +
+      scale_x_continuous(breaks = 1:12,
+                         labels = c("Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
+                                    "Jul", "Aug", "Sep", "Okt", "Nov", "Dez")) +
+      labs(title = "Saisonverlauf der Heizgradtage nach Jahr",
+           y = "Heizgradtage (HGT)", x = "Monat", color = "Jahr") +
+      theme_minimal(base_size = 14)
+  })
+
+  output$table_hgt <- renderTable({
+    filtered_hgt() %>%
+      arrange(desc(Date)) %>%
+      transmute(Monat = format(Date, "%Y-%m"), Heizgradtage = HGT)
+  }, digits = 1)
 
   # Tabellen mit formatiertem Monat (YYYY-MM)
   output$table_benzin <- renderTable({

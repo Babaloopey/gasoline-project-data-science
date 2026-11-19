@@ -6,3 +6,5 @@ Weekly Oil bulletin Price
 https://energy.ec.europa.eu/data-and-analysis/weekly-oil-bulletin_en#:~:text=Information%20on%20price%20developments%20(with%20and%20without,2026.%20View%20Download%20(4.28%20MB%20%2D%20XLSX)
 Euro Exchange
 https://data.snb.ch/en/topics/ziredev/cube/devkum?dimSel=D1(EUR1)&dimChartSel=D0(M0),D1(EUR1)&anchorSel=D0(M0),D1(EUR1)
+Heating days and cooling days
+https://www.bfe-ogd.ch/ogd105_heizgradtage_k%C3%BChlgradtage.csv
